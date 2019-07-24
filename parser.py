@@ -3,6 +3,84 @@ import datetime
 import argparse
 
 
+class ArgsManager(object):
+
+    dateformat = '%d-%m-%Y_%H-%M-%S'
+    date_range = {'from_date': None , 'to_date': None}
+
+    def arguments_parsing(self):
+        # Initializing script arguments.
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--from', dest='from_date',
+                            help='Podaj datę od której należy rozpocząć parsowanie', required=False)
+        parser.add_argument('--to', dest='to_date',
+                            help='Podaj datę na której należy zakończyć parsowanie', required=False)
+        parser.add_argument('filename', help="Podaj nazwe pliku z logami")
+        self.convert_date(parser.parse_args().from_date, parser.parse_args().to_date)
+
+        return parser.parse_args()
+
+    def convert_date(self, from_date, to_date):
+        # Converting date objects from input to datetime type or signalizing wrong input format.
+        if from_date:
+            try:
+                from_date = datetime.datetime.strptime(from_date, self.dateformat)
+                self.date_range['from_date'] = from_date
+            except ValueError:
+                print("Zły format daty: '", from_date, f"' Poprawny format: {self.dateformat}")
+
+        if to_date:
+            try:
+                to_date = datetime.datetime.strptime(to_date, self.dateformat)
+                self.date_range['to_date'] = to_date
+            except ValueError:
+                print("Zły format daty: '", to_date, f"' Poprawny format: {self.dateformat}")
+        return self.date_range
+
+
+class Lexer(object):
+
+    LOG_RE = re.compile(r"""
+        ^\[pid:\s  (?P<pid>\d+)  \|app:\s  (?P<app>\d+)  \|req:\s(?P<log_num>\d+)
+        \/(?P<total_num>\d+)]\s(?P<ip>\d+.\d+.\d+.\d+)\s\(\)\s{(?P<vars>\d+\svars\sin\s\d+\sbytes)}\s\[
+        (?P<datetime>.+?)\]\s(?P<method>\w+)\s.+generated\s(?P<request_size>\d+)[^(]+[^ ]+\s(?P<code_status>\d+).+
+        """, re.X)
+
+    arguments = ArgsManager().arguments_parsing()
+    date_range = ArgsManager.date_range
+
+    def read(self, filename):
+        # Reading logfile line by line, transfering needed data from it with correct type.
+
+        with open(filename, 'r') as logfile:
+            log = logfile.readline()
+            while log:
+                if re.match(r'^\[pid', log):
+                    log = self.LOG_RE.search(log).groupdict()
+                    log['datetime'] = datetime.datetime.strptime(log['datetime'], '%c')
+                    log['request_size'] = int(log['request_size'])
+                    log_data = [log['log_num'], log['datetime'], log['code_status'], log['request_size']]
+                    yield log_data
+                log = logfile.readline()
+
+    def parse_range(self, log_stats):
+        # Setting date range for parsing, if date isn't transferred, the date from logs is taken.
+        if self.date_range['from_date'] is None:
+            self.date_range['from_date'] = log_stats[0][1]
+
+        if self.date_range['to_date'] is None:
+            self.date_range['to_date'] = log_stats[-1][1]
+
+        return self.date_range
+
+    def generate_logs(self):
+        # Generating correct list with statistics for each log for defined date range.
+        log_stats = [log for log in self.read(self.arguments.filename)]
+        self.parse_range(log_stats)
+        log_stats = [log for log in log_stats if self.date_range['from_date'] < log[1] < self.date_range['to_date']]
+        return log_stats
+
+
 class Parser(object):
 
     LOG_RE = re.compile(r"""
@@ -15,65 +93,7 @@ class Parser(object):
         self.filename = filename
         self.date_range = {'from_date': None, 'to_date': None}
         self.log_stats = []
-        self.args = ()
 
-    def arguments_parsing(self):
-        # Initializing script arguments.
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--from', dest='from_date',
-                            help='Podaj datę od której należy rozpocząć parsowanie', required=False)
-        parser.add_argument('--to', dest='to_date',
-                            help='Podaj datę na której należy zakończyć parsowanie', required=False)
-        parser.add_argument('filename', help="Podaj nazwe pliku z logami")
-        self.args = parser.parse_args()
-        pass
-
-    def convert_date(self, from_date, to_date):
-        # Converting date objects from input to datetime type or signalizing wrong input format.
-        if from_date:
-            try:
-                from_date = datetime.datetime.strptime(from_date, '%d-%m-%Y_%H-%M-%S')
-                self.date_range['from_date'] = from_date
-            except ValueError:
-                print("Zły format daty: '", from_date, "' Poprawny format: %d-%m-%Y_%H-%M-%S")
-
-        if to_date:
-            try:
-                to_date = datetime.datetime.strptime(to_date, '%d-%m-%Y_%H-%M-%S')
-                self.date_range['to_date'] = to_date
-            except ValueError:
-                print("Zły format daty: '", to_date, "' Poprawny format: %d-%m-%Y_%H-%M-%S")
-        pass
-
-    def parse_range(self, log_stats):
-        # Setting date range for parsing, if date isn't transferred, the date from logs is taken.
-        if self.date_range['from_date'] is None:
-            self.date_range['from_date'] = log_stats[0][1]
-        if self.date_range['to_date'] is None:
-            self.date_range['to_date'] = log_stats[-1][1]
-        pass
-
-    def read(self, filename):
-        # Reading logfile line by line, transfering needed data from it with correct type.
-        with open(filename, 'r') as logfile:
-            log = logfile.readline()
-            while log:
-                if re.match(r'^\[pid', log):
-                    log = self.LOG_RE.search(log).groupdict()
-                    log['datetime'] = datetime.datetime.strptime(log['datetime'], '%c')
-                    log['request_size'] = int(log['request_size'])
-                    log_data = [log['log_num'], log['datetime'], log['code_status'], log['request_size']]
-                    yield log_data
-                log = logfile.readline()
-
-    def generate_logs(self):
-        # Generating correct list with statistics for each log for defined date range.
-        log_stats = [log for log in self.read(self.args.filename)]
-        self.parse_range(log_stats)
-        log_stats = [log for log in log_stats
-                     if self.date_range['from_date'] <= log[1] <= self.date_range['to_date']]
-        self.log_stats = log_stats
-        pass
 
     @staticmethod
     def calc_rps(start_date, end_date, numbofreq):
@@ -132,9 +152,8 @@ class Parser(object):
 
     def main(self):
 
-        self.arguments_parsing()
-        self.convert_date(self.args.from_date, self.args.to_date)
-        self.generate_logs()
+        self.log_stats = Lexer().generate_logs()
+
         try:
             self.generate_response()
         except IndexError:
