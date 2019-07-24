@@ -1,12 +1,12 @@
 import re
 import datetime
 import argparse
-
+from humanize import naturalsize
 
 class ArgsManager(object):
 
     dateformat = '%d-%m-%Y_%H-%M-%S'
-    date_range = {'from_date': None , 'to_date': None}
+    date_range = {'from_date': None, 'to_date': None}
 
     def arguments_parsing(self):
         # Initializing script arguments.
@@ -41,10 +41,10 @@ class ArgsManager(object):
 class Lexer(object):
 
     LOG_RE = re.compile(r"""
-        ^\[pid:\s  (?P<pid>\d+)  \|app:\s  (?P<app>\d+)  \|req:\s(?P<log_num>\d+)
-        \/(?P<total_num>\d+)]\s(?P<ip>\d+.\d+.\d+.\d+)\s\(\)\s{(?P<vars>\d+\svars\sin\s\d+\sbytes)}\s\[
-        (?P<datetime>.+?)\]\s(?P<method>\w+)\s.+generated\s(?P<request_size>\d+)[^(]+[^ ]+\s(?P<code_status>\d+).+
-        """, re.X)
+    ^\[pid:\s  (?P<pid>\d+)  \|app:\s  (?P<app>\d+)  \|req:\s(?P<log_num>\d+)
+    \/(?P<total_num>\d+)]\s(?P<ip>\d+.\d+.\d+.\d+)\s\(\)\s{(?P<vars>\d+\svars\sin\s\d+\sbytes)}\s\[
+    (?P<datetime>.+?)\]\s(?P<method>\w+)\s.+generated\s(?P<request_size>\d+)[^(]+[^ ]+\s(?P<code_status>\d+).+
+    """, re.X)
 
     arguments = ArgsManager().arguments_parsing()
     date_range = ArgsManager.date_range
@@ -83,17 +83,10 @@ class Lexer(object):
 
 class Parser(object):
 
-    LOG_RE = re.compile(r"""
-    ^\[pid:\s  (?P<pid>\d+)  \|app:\s  (?P<app>\d+)  \|req:\s(?P<log_num>\d+)
-    \/(?P<total_num>\d+)]\s(?P<ip>\d+.\d+.\d+.\d+)\s\(\)\s{(?P<vars>\d+\svars\sin\s\d+\sbytes)}\s\[
-    (?P<datetime>.+?)\]\s(?P<method>\w+)\s.+generated\s(?P<request_size>\d+)[^(]+[^ ]+\s(?P<code_status>\d+).+
-    """, re.X)
-
     def __init__(self, filename=''):
         self.filename = filename
         self.date_range = {'from_date': None, 'to_date': None}
         self.log_stats = []
-
 
     @staticmethod
     def calc_rps(start_date, end_date, numbofreq):
@@ -132,20 +125,12 @@ class Parser(object):
 
         # Combine request for a code counter.
         response_code_size = ''
-        response_code_counter = ', '.join(f'{key}: {value}' for key, value in codes_counter.items())
-        response_code_counter = f'Odpowiedzi: ({response_code_counter})'
+        response_code_counter = f"Odpowiedzi: ({', '.join(f'{key}: {value}' for key, value in codes_counter.items())})"
 
         # Combine request for a average code size.
         for code, size in codes_size.items():
-            unit = 'Mb'
-            size_rounded = round(((size / codes_counter[code]) / (1024 * 1024)), 2)
-            if size_rounded == 0:
-                size_rounded = round(((size / codes_counter[code]) / 1024), 2)
-                unit = 'Kb'
-                if size_rounded == 0:
-                    size_rounded = round((size / codes_counter[code]), 2)
-                    unit = 'b'
-            response_code_size = response_code_size + f'Sredni rozmiar zapytan z kodem {code}: {size_rounded} {unit} \n'
+            amount = naturalsize(size)
+            response_code_size = response_code_size + f'Sredni rozmiar zapytan z kodem {code}: {amount} \n'
 
         print(response_code_counter)
         print(response_code_size)
